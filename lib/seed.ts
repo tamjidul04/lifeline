@@ -34,6 +34,8 @@ export async function resetDemoData(prisma: PrismaClient, password: string): Pro
 
   await prisma.$transaction(
     async (tx) => {
+      // Concurrent resets queue up here instead of interleaving (released automatically at commit).
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(727001)`;
       await tx.session.deleteMany(); // everyone is signed out by a reset
       await tx.reservation.deleteMany();
       await tx.bloodRequest.deleteMany();

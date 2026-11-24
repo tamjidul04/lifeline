@@ -15,7 +15,25 @@ const N_HOSPITALS = Math.max(5, Number(process.env.HOSPITALS ?? 10)); // >= 5: t
 const PW = process.env.SEED_PASSWORD!;
 const TAG = `race${Date.now()}`;
 const LOC = { lat: 0.5, lng: 0.5 }; // far from every seeded bank, so ROUTINE (<=50 km) sees fixtures only
-const prisma = new PrismaClient();
+// The harness talks to the DB directly for fixtures. Over a slow or flaky link (e.g. a laptop far
+// from the DB region) a connection can drop, so harness queries retry connection errors.
+// This retry is for the TEST HARNESS only; the app's own transactions are tested as-is over HTTP.
+const CONNECTION_ERRORS = new Set(["P1001", "P1002", "P1017", "P2024"]);
+const prisma = new PrismaClient().$extends({
+  query: {
+    async $allOperations({ args, query }) {
+      for (let attempt = 1; ; attempt++) {
+        try {
+          return await query(args);
+        } catch (e) {
+          const code = (e as { code?: string }).code;
+          if (attempt >= 6 || !code || !CONNECTION_ERRORS.has(code)) throw e;
+          await new Promise((r) => setTimeout(r, 1000 * attempt));
+        }
+      }
+    },
+  },
+});
 
 let violations = 0;
 const fail = (msg: string) => {

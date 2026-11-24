@@ -93,6 +93,38 @@ export const listRequestsSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
 
+export const createUnitSchema = z.object({
+  bloodType: z.enum(BLOOD_TYPES, { error: "Choose a valid blood type." }),
+  component: z.enum(COMPONENTS, { error: "Choose red cells, plasma or platelets." }),
+  quantity: z.number({ error: "Quantity must be a number." }).int().min(1, { error: "Add at least 1 unit." }).max(50, { error: "At most 50 units at once." }).default(1),
+  expiresAt: z
+    .string({ error: "Expiry date is required." })
+    .datetime({ error: "Expiry must be an ISO date-time, e.g. 2026-12-01T10:00:00Z." })
+    .transform((s) => new Date(s))
+    .refine((d) => d.getTime() > Date.now(), { error: "Expiry must be in the future." })
+    .refine((d) => d.getTime() < Date.now() + 400 * 86_400_000, { error: "Expiry is too far in the future." }),
+});
+
+export const listUnitsSchema = z.object({
+  q: z.string().trim().max(60).optional(),
+  bloodType: z.enum(BLOOD_TYPES).optional(),
+  component: z.enum(COMPONENTS).optional(),
+  status: z.enum(["AVAILABLE", "RESERVED", "ISSUED", "RETIRED", "EXPIRED"]).optional(),
+  bankId: z.string().max(40).optional(),
+  expiringWithinHours: z.coerce.number().int().min(1).max(24 * 365).optional(),
+  sort: z.enum(["expiry_asc", "expiry_desc", "type", "newest"]).default("expiry_asc"),
+  page: z.coerce.number().int().min(1).max(10_000).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(25),
+});
+
+export const listAuditSchema = z.object({
+  action: z.string().trim().max(40).optional(),
+  entity: z.string().trim().max(40).optional(),
+  q: z.string().trim().max(80).optional(),
+  page: z.coerce.number().int().min(1).max(10_000).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(25),
+});
+
 export type CreateRequestInput = z.infer<typeof createRequestSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type RegisterInput = z.infer<typeof registerSchema>;
