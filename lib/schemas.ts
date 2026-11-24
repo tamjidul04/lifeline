@@ -62,6 +62,38 @@ export const createStaffSchema = z.object({
   lng: lngSchema,
 });
 
+export const COMPONENTS = ["RBC", "PLASMA", "PLATELETS"] as const;
+export const URGENCIES = ["CRITICAL", "URGENT", "ROUTINE"] as const;
+export const REQUEST_STATUSES = ["OPEN", "MATCHED", "PARTIAL", "DELIVERED", "CANCELLED", "UNFULFILLABLE"] as const;
+
+export const createRequestSchema = z.object({
+  bloodType: z.enum(BLOOD_TYPES, { error: "Choose a valid blood type." }),
+  component: z.enum(COMPONENTS, { error: "Choose red cells, plasma or platelets." }),
+  unitsRequested: z
+    .number({ error: "Units must be a number." })
+    .int({ error: "Units must be a whole number." })
+    .min(1, { error: "Request at least 1 unit." })
+    .max(20, { error: "At most 20 units per request." }),
+  urgency: z.enum(URGENCIES, { error: "Choose critical, urgent or routine." }),
+});
+
+/** Client-generated key (e.g. a UUID per form submission). Same key + same body = safe replay. */
+export const idempotencyKeySchema = z
+  .string({ error: "Idempotency-Key header is required." })
+  .trim()
+  .min(8, { error: "Idempotency-Key must be 8-128 characters." })
+  .max(128, { error: "Idempotency-Key must be 8-128 characters." })
+  .regex(/^[A-Za-z0-9._:-]+$/, { error: "Idempotency-Key may only contain letters, digits and . _ : -" });
+
+export const listRequestsSchema = z.object({
+  status: z.enum(REQUEST_STATUSES).optional(),
+  urgency: z.enum(URGENCIES).optional(),
+  bloodType: z.enum(BLOOD_TYPES).optional(),
+  sort: z.enum(["newest", "oldest"]).default("newest"),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
+export type CreateRequestInput = z.infer<typeof createRequestSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type CreateStaffInput = z.infer<typeof createStaffSchema>;

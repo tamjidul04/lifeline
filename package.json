@@ -13,7 +13,8 @@
     "postinstall": "prisma generate",
     "smoke:auth": "tsx --env-file=.env scripts/auth-smoke.ts",
     "verify:db": "tsx --env-file=.env scripts/verify-schema.ts",
-    "explain:demo": "tsx --env-file=.env scripts/explain-demo.ts"
+    "explain:demo": "tsx --env-file=.env scripts/explain-demo.ts",
+    "race": "tsx --env-file=.env scripts/race-test.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",

@@ -32,6 +32,13 @@ export function toErrorResponse(err: unknown): NextResponse {
     if (err.code === "P2025") return errorResponse(404, "NOT_FOUND", "Record not found.");
     if (err.code === "P2034") return errorResponse(409, "WRITE_CONFLICT", "Another update happened at the same time. Please retry.");
     if (DB_UNAVAILABLE.has(err.code)) return dbUnavailable();
+    // Still contended after automatic retries (lock timeout / transaction timeout): ask the client to retry.
+    const pgCode = (err.meta as { code?: string } | undefined)?.code;
+    if (err.code === "P2028" || (err.code === "P2010" && (pgCode === "55P03" || pgCode === "40P01" || pgCode === "40001"))) {
+      return errorResponse(503, "BUSY", "Many requests are competing for the same stock right now. Please retry in a moment.", undefined, {
+        "Retry-After": "2",
+      });
+    }
   }
   if (err instanceof Prisma.PrismaClientInitializationError) return dbUnavailable();
 
