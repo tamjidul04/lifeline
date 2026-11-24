@@ -1,0 +1,183 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  ADMIN
+  BANK
+  HOSPITAL
+  DONOR
+}
+
+enum BloodType {
+  O_NEG
+  O_POS
+  A_NEG
+  A_POS
+  B_NEG
+  B_POS
+  AB_NEG
+  AB_POS
+}
+
+enum Component {
+  RBC
+  PLASMA
+  PLATELETS
+}
+
+// Expiry is derived from expiresAt at query time; there is no EXPIRED status.
+// Units are never deleted: they are RETIRED. ISSUED means delivered to a hospital.
+enum UnitStatus {
+  AVAILABLE
+  ISSUED
+  RETIRED
+}
+
+enum Urgency {
+  CRITICAL
+  URGENT
+  ROUTINE
+}
+
+enum RequestStatus {
+  OPEN
+  MATCHED
+  PARTIAL
+  DELIVERED
+  CANCELLED
+  UNFULFILLABLE
+}
+
+enum ReservationStatus {
+  ACTIVE
+  DELIVERED
+  RELEASED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique // always stored lowercase
+  passwordHash String
+  name         String
+  role         Role
+  createdAt    DateTime @default(now())
+
+  bank     Bank?
+  hospital Hospital?
+  donor    Donor?
+  requests BloodRequest[]
+}
+
+model Bank {
+  id        String @id @default(cuid())
+  name      String
+  lat       Float
+  lng       Float
+  managerId String @unique
+  manager   User   @relation(fields: [managerId], references: [id])
+
+  units BloodUnit[]
+}
+
+model Hospital {
+  id      String @id @default(cuid())
+  name    String
+  lat     Float
+  lng     Float
+  staffId String @unique
+  staff   User   @relation(fields: [staffId], references: [id])
+
+  requests BloodRequest[]
+}
+
+model Donor {
+  id        String    @id @default(cuid())
+  userId    String    @unique
+  user      User      @relation(fields: [userId], references: [id])
+  bloodType BloodType
+  // null = never donated = eligible. A future date is treated as null by the rules.
+  lastDonationAt DateTime?
+  lat            Float
+  lng            Float
+}
+
+model BloodUnit {
+  id        String     @id @default(cuid())
+  bankId    String
+  bank      Bank       @relation(fields: [bankId], references: [id])
+  bloodType BloodType
+  component Component
+  expiresAt DateTime // UTC
+  status    UnitStatus @default(AVAILABLE)
+  version   Int        @default(0)
+  createdAt DateTime   @default(now())
+
+  reservations Reservation[]
+
+  @@index([bankId, status])
+  @@index([component, bloodType, expiresAt])
+}
+
+model BloodRequest {
+  id             String        @id @default(cuid())
+  hospitalId     String
+  hospital       Hospital      @relation(fields: [hospitalId], references: [id])
+  createdById    String
+  createdBy      User          @relation(fields: [createdById], references: [id])
+  bloodType      BloodType
+  component      Component
+  unitsRequested Int
+  urgency        Urgency
+  status         RequestStatus @default(OPEN)
+  // Idempotency: same key + same hash = replay original; same key + different hash = 409.
+  idempotencyKey String
+  requestHash    String
+  // Human-readable decision reasons and suggested alternatives (A02 explainability).
+  explanation    Json?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  reservations Reservation[]
+
+  @@unique([hospitalId, idempotencyKey])
+  @@index([hospitalId, status])
+  @@index([status, createdAt])
+}
+
+// Single source of truth for which request holds which unit.
+// A partial unique index (see migration.sql) allows only ONE ACTIVE/DELIVERED row per unit.
+model Reservation {
+  id          String            @id @default(cuid())
+  requestId   String
+  request     BloodRequest      @relation(fields: [requestId], references: [id])
+  unitId      String
+  unit        BloodUnit         @relation(fields: [unitId], references: [id])
+  status      ReservationStatus @default(ACTIVE)
+  reason      String? // why this unit was chosen
+  createdAt   DateTime          @default(now())
+  deliveredAt DateTime?
+  releasedAt  DateTime?
+
+  @@index([requestId])
+  @@index([unitId, status])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorId   String?
+  action    String
+  entity    String
+  entityId  String?
+  detail    Json?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([entity, entityId])
+}
