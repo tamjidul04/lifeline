@@ -12,7 +12,8 @@
     "db:deploy": "prisma migrate deploy",
     "postinstall": "prisma generate",
     "smoke:auth": "tsx --env-file=.env scripts/auth-smoke.ts",
-    "verify:db": "tsx --env-file=.env scripts/verify-schema.ts"
+    "verify:db": "tsx --env-file=.env scripts/verify-schema.ts",
+    "explain:demo": "tsx --env-file=.env scripts/explain-demo.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
