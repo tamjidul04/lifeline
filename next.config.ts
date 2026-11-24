@@ -1,9 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
-  cacheComponents: true,
-  partialPrefetching: true,
+  // Off on purpose: every page is per-user live data (sessions, stock, reservations), so static
+  // shells gain little, and request-time rendering keeps auth reads simple and predictable.
+  cacheComponents: false,
   turbopack: {
     rules: {
       "*.css": {

@@ -17,8 +17,9 @@ const RIVERSIDE: [BloodType, Component, number][] = [
   ["A_POS", "PLASMA", 1], ["B_POS", "PLASMA", 2], ["B_POS", "PLATELETS", 1],
 ];
 
-// Spread of hours-until-expiry so FEFO and expiry rules are visible in the demo.
-const EXPIRY_HOURS = [20, 60, 120, 240, 480, 840];
+// Distinct hours-until-expiry so first-expiry-first-out ordering is visible (no ties within a bank).
+// Includes near-24h values either side of the "expiring soon" threshold.
+const EXPIRY_HOURS = [6, 23, 25, 47, 72, 120, 200, 300, 450, 600, 720, 840];
 
 type Seeded = { email: string; role: string };
 
@@ -33,6 +34,7 @@ export async function resetDemoData(prisma: PrismaClient, password: string): Pro
 
   await prisma.$transaction(
     async (tx) => {
+      await tx.session.deleteMany(); // everyone is signed out by a reset
       await tx.reservation.deleteMany();
       await tx.bloodRequest.deleteMany();
       await tx.bloodUnit.deleteMany();
@@ -65,24 +67,25 @@ export async function resetDemoData(prisma: PrismaClient, password: string): Pro
       await tx.hospital.create({ data: { name: "City General Hospital", lat: 23.75, lng: 90.39, staffId: hospUsers[0].id } });
       await tx.hospital.create({ data: { name: "North Medical Center", lat: 23.88, lng: 90.4, staffId: hospUsers[1].id } });
 
-      // Donors: one recently donated (ineligible), one never donated (eligible), rest eligible.
-      const donors: [string, string, BloodType, number | null][] = [
-        ["donor1@lifeline.demo", "Donor One", "O_NEG", 120],
-        ["donor2@lifeline.demo", "Donor Two", "A_POS", 20],
-        ["donor3@lifeline.demo", "Donor Three", "AB_NEG", null],
-        ["donor4@lifeline.demo", "Donor Four", "B_POS", 200],
-        ["donor5@lifeline.demo", "Donor Five", "O_POS", 91],
-        ["donor6@lifeline.demo", "Donor Six", "A_NEG", 89],
+      // Donors with fixed locations (deterministic distances). Cooldown cases: 89 days (ineligible),
+      // 91 days (eligible), never donated (eligible), 20 days (ineligible).
+      const donors: [string, string, BloodType, number | null, number, number][] = [
+        ["donor1@lifeline.demo", "Donor One", "O_NEG", 120, 23.76, 90.38],
+        ["donor2@lifeline.demo", "Donor Two", "A_POS", 20, 23.81, 90.41],
+        ["donor3@lifeline.demo", "Donor Three", "AB_NEG", null, 23.73, 90.43],
+        ["donor4@lifeline.demo", "Donor Four", "B_POS", 200, 23.86, 90.37],
+        ["donor5@lifeline.demo", "Donor Five", "O_POS", 91, 23.71, 90.4],
+        ["donor6@lifeline.demo", "Donor Six", "A_NEG", 89, 23.79, 90.46],
       ];
-      for (const [email, name, bloodType, daysAgo] of donors) {
+      for (const [email, name, bloodType, daysAgo, lat, lng] of donors) {
         const u = await mk(email, name, "DONOR");
         await tx.donor.create({
           data: {
             userId: u.id,
             bloodType,
             lastDonationAt: daysAgo === null ? null : new Date(now - daysAgo * 24 * HOUR),
-            lat: 23.7 + Math.random() * 0.2,
-            lng: 90.35 + Math.random() * 0.15,
+            lat,
+            lng,
           },
         });
       }
@@ -93,7 +96,9 @@ export async function resetDemoData(prisma: PrismaClient, password: string): Pro
         for (const [bloodType, component, count] of spec) {
           for (let c = 0; c < count; c++) {
             // AB- RBC at Central must stay valid for the race demo.
-            const hours = bloodType === "AB_NEG" ? 480 : EXPIRY_HOURS[i % EXPIRY_HOURS.length];
+            // +5h per pass through the list keeps every expiry in a bank distinct.
+            const hours =
+              bloodType === "AB_NEG" ? 480 : EXPIRY_HOURS[i % EXPIRY_HOURS.length] + Math.floor(i / EXPIRY_HOURS.length) * 5;
             units.push({ bankId, bloodType, component, expiresAt: new Date(now + hours * HOUR) });
             i++;
           }
@@ -104,6 +109,11 @@ export async function resetDemoData(prisma: PrismaClient, password: string): Pro
       addUnits(banks[0].id, CENTRAL);
       addUnits(banks[1].id, RIVERSIDE);
       await tx.bloodUnit.createMany({ data: units });
+
+      // The reset is itself audited, so the audit log is never empty after a reset.
+      await tx.auditLog.create({
+        data: { actorId: null, actorLabel: "system", action: "DEMO_RESET", entity: "System", detail: { units: units.length, accounts: accounts.length } },
+      });
     },
     { timeout: 60_000, maxWait: 15_000 },
   );

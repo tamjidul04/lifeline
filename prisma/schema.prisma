@@ -73,6 +73,20 @@ model User {
   hospital Hospital?
   donor    Donor?
   requests BloodRequest[]
+  sessions Session[]
+}
+
+// Server-side session record. The cookie carries only a signed session id; deleting this row
+// (logout, admin reset) revokes the cookie immediately, even if someone copied it.
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model Bank {
@@ -106,6 +120,8 @@ model Donor {
   lastDonationAt DateTime?
   lat            Float
   lng            Float
+
+  @@index([bloodType, lastDonationAt])
 }
 
 model BloodUnit {
@@ -123,6 +139,7 @@ model BloodUnit {
 
   @@index([bankId, status])
   @@index([component, bloodType, expiresAt])
+  @@index([status, expiresAt])
 }
 
 model BloodRequest {
@@ -169,9 +186,12 @@ model Reservation {
   @@index([unitId, status])
 }
 
+// No FK on actorId on purpose: the audit trail must survive user deletion.
+// actorLabel keeps rows attributable ("system", or the email tried in a failed login).
 model AuditLog {
-  id        String   @id @default(cuid())
-  actorId   String?
+  id         String   @id @default(cuid())
+  actorId    String?
+  actorLabel String?
   action    String
   entity    String
   entityId  String?
