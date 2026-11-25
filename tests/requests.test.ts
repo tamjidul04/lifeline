@@ -4,6 +4,18 @@ import { requestHash } from "@/lib/requests";
 import { toErrorResponse } from "@/lib/api";
 import { isRetryable } from "@/lib/tx";
 import { createRequestSchema, idempotencyKeySchema } from "@/lib/schemas";
+import { withPoolDefaults } from "@/lib/db";
+
+describe("connection pool defaults", () => {
+  it("raises the pool unless the URL already chose", () => {
+    const u = new URL(withPoolDefaults("postgresql://u:p@host/db?sslmode=require&pgbouncer=true")!);
+    expect(u.searchParams.get("connection_limit")).toBe("20");
+    expect(u.searchParams.get("pool_timeout")).toBe("20");
+    expect(u.searchParams.get("pgbouncer")).toBe("true");
+    expect(new URL(withPoolDefaults("postgresql://u:p@host/db?connection_limit=3")!).searchParams.get("connection_limit")).toBe("3");
+    expect(withPoolDefaults(undefined)).toBeUndefined();
+  });
+});
 
 const base = { bloodType: "O_POS", component: "RBC", unitsRequested: 2, urgency: "URGENT" } as const;
 
@@ -54,6 +66,21 @@ describe("concurrency error handling", () => {
     expect(isRetryable(pgErr("P2002"))).toBe(true);
     expect(isRetryable(pgErr("P2010", "23514"))).toBe(false); // CHECK violation: retrying cannot help
     expect(isRetryable(new Error("boom"))).toBe(false);
+  });
+
+  it("a full connection pool is retried and reported as BUSY (not 'database unreachable', not 500)", async () => {
+    for (const e of [pgErr("P2024"), new Error("Timed out fetching a new connection from the connection pool. More info")]) {
+      expect(isRetryable(e)).toBe(true);
+      const res = toErrorResponse(e);
+      expect(res.status).toBe(503);
+      expect((await res.json()).error.code).toBe("BUSY");
+    }
+  });
+
+  it("an unreachable database is still reported as DB_UNAVAILABLE and not retried as busy", async () => {
+    const res = toErrorResponse(pgErr("P1001"));
+    expect(res.status).toBe(503);
+    expect((await res.json()).error.code).toBe("DB_UNAVAILABLE");
   });
 
   it("still-contended after retries -> 503 BUSY with Retry-After, never a raw 500", async () => {

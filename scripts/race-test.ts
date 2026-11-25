@@ -14,7 +14,12 @@ const ITERATIONS = Number(process.env.ITERATIONS ?? 100);
 const N_HOSPITALS = Math.max(5, Number(process.env.HOSPITALS ?? 10)); // >= 5: the cancel/deliver scenario uses hospital #1, bursts use #0
 const PW = process.env.SEED_PASSWORD!;
 const TAG = `race${Date.now()}`;
-const LOC = { lat: 0.5, lng: 0.5 }; // far from every seeded bank, so ROUTINE (<=50 km) sees fixtures only
+// Each run gets its own remote location (>= 1 degree apart, ~111 km) so that (a) ROUTINE requests
+// (<= 50 km) can only ever match THIS run's units, even if two runs overlap, and (b) seeded banks
+// (around 23.7, 90.4) are never in range.
+const slot = Date.now() % 90;
+const LOC = { lat: -45 + slot, lng: -120 + ((Date.now() / 1000) % 60) };
+if (Math.abs(LOC.lat - 23.75) < 3) LOC.lat -= 10;
 // The harness talks to the DB directly for fixtures. Over a slow or flaky link (e.g. a laptop far
 // from the DB region) a connection can drop, so harness queries retry connection errors.
 // This retry is for the TEST HARNESS only; the app's own transactions are tested as-is over HTTP.
@@ -71,15 +76,23 @@ const createReq = (cookie: string, key: string, body: object) =>
 
 const AB_NEG_1 = { bloodType: "AB_NEG", component: "RBC", unitsRequested: 1, urgency: "ROUTINE" };
 
-const FIXTURE_EMAILS = { startsWith: "race", endsWith: "@lifeline.test" };
-
-/** Remove ALL race fixtures, including any left behind by an earlier crashed run. */
-async function removeFixtures() {
-  const users = await prisma.user.findMany({ where: { email: FIXTURE_EMAILS }, select: { id: true } });
+/**
+ * Remove race fixtures. With `onlyThisRun` it removes just this run's fixtures (end of run).
+ * Without it, it removes fixtures left by crashed runs, but ONLY those older than 30 minutes, so
+ * a concurrently running test is never disturbed.
+ */
+async function removeFixtures(onlyThisRun = false) {
+  const staleBefore = Date.now() - 30 * 60_000;
+  const all = await prisma.user.findMany({ where: { email: { startsWith: "race", endsWith: "@lifeline.test" } }, select: { id: true, email: true } });
+  const users = all.filter((u) => {
+    const stamp = Number(/^race(\d+)\./.exec(u.email)?.[1]);
+    return onlyThisRun ? u.email.startsWith(`${TAG}.`) : stamp < staleBefore;
+  });
   const ids = users.map((u) => u.id);
   if (ids.length === 0) return;
   const banks = await prisma.bank.findMany({ where: { managerId: { in: ids } }, select: { id: true } });
   const reqs = await prisma.bloodRequest.findMany({ where: { createdById: { in: ids } }, select: { id: true } });
+  // Reservations reference both requests and units (FK RESTRICT): remove them first, by BOTH keys.
   await prisma.reservation.deleteMany({
     where: { OR: [{ requestId: { in: reqs.map((r) => r.id) } }, { unit: { bankId: { in: banks.map((b) => b.id) } } }] },
   });
@@ -123,7 +136,8 @@ async function main() {
 
     const cleanIteration = async () => {
       const reqs = await prisma.bloodRequest.findMany({ where: { createdById: { in: fixtureUserIds } }, select: { id: true } });
-      await prisma.reservation.deleteMany({ where: { requestId: { in: reqs.map((r) => r.id) } } });
+      // Both keys: a reservation created after the request list was read must not block the unit delete.
+      await prisma.reservation.deleteMany({ where: { OR: [{ requestId: { in: reqs.map((r) => r.id) } }, { unit: { bankId: bank.id } }] } });
       await prisma.bloodRequest.deleteMany({ where: { id: { in: reqs.map((r) => r.id) } } });
       await prisma.bloodUnit.deleteMany({ where: { bankId: bank.id } });
     };
@@ -212,7 +226,7 @@ async function main() {
       SELECT "unitId", COUNT(*) AS n FROM "Reservation" WHERE status IN ('ACTIVE','DELIVERED') GROUP BY "unitId" HAVING COUNT(*) > 1`;
     if (doubles.length > 0) fail(`database has ${doubles.length} unit(s) with more than one live reservation`);
   } finally {
-    await removeFixtures();
+    await removeFixtures(true);
     await prisma.$disconnect();
   }
 

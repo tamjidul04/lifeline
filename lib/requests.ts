@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { Prisma, RequestStatus } from "@prisma/client";
 import { prisma } from "./db";
 import { assertCanManageRequest, type Actor } from "./access";
-import { conflict, forbidden, notFound } from "./errors";
+import { conflict, forbidden, HttpError, notFound } from "./errors";
 import { availableUnitWhere } from "./inventory";
 import { compatibleTypes } from "./compat";
 import { planAllocation, type MatchPlan } from "./rules";
@@ -55,21 +55,50 @@ function explanationJson(plan: MatchPlan, decidedAt: Date): Prisma.InputJsonValu
   } as Prisma.InputJsonValue;
 }
 
+type UnitRow = Prisma.BloodUnitGetPayload<{ include: { bank: true } }>;
+
+/** Replan rounds before settling for the units we already hold (each round excludes lost units). */
+const MAX_REPLANS = 8;
+/** Hard ceiling on request creation per hospital per hour, whatever the outcome (anti-flooding). */
+export const MAX_REQUESTS_PER_HOUR = 30;
+
+/**
+ * Lock the given units for this transaction, but only those that are STILL available, and skip
+ * (never wait for) rows another transaction holds. Returns the ids we now hold.
+ * Availability is re-checked in the same statement, so a unit whose reservation committed after
+ * we planned is not returned. The partial unique index remains the final backstop.
+ */
+async function lockAvailable(tx: Prisma.TransactionClient, ids: string[], now: Date): Promise<string[]> {
+  if (ids.length === 0) return [];
+  const rows = await tx.$queryRaw<{ id: string }[]>`
+    SELECT u.id FROM "BloodUnit" u
+    WHERE u.id = ANY(${ids})
+      AND u.status = 'AVAILABLE'
+      AND u."expiresAt" > ${now.toISOString()}::timestamp
+      AND NOT EXISTS (SELECT 1 FROM "Reservation" r WHERE r."unitId" = u.id AND r.status IN ('ACTIVE', 'DELIVERED'))
+    ORDER BY u.id
+    FOR UPDATE OF u SKIP LOCKED`;
+  return rows.map((r) => r.id);
+}
+
 /**
  * Create a request and atomically reserve the best compatible units (A05 + A02).
  *
- * Concurrency design (all in ONE read-committed transaction, retried on transient conflicts):
+ * Concurrency design (ONE read-committed transaction, retried on transient conflicts):
  * 1. Per-hospital advisory lock: same-hospital creates run one at a time, so the idempotency
- *    lookup and the open-request cap cannot race.
- * 2. Every candidate unit row is locked FOR UPDATE in id order (no deadlocks). A concurrent
- *    request for the same stock blocks here until we commit.
- * 3. Candidates are RE-READ after the lock. A new statement sees rows committed by whoever held
- *    the lock before us, so units they reserved are no longer candidates.
- * 4. The engine plans on that exact, locked stock; we insert the Reservations and set the status
- *    through the state machine. The partial unique index (one live reservation per unit) is the
- *    database-level backstop: a double reservation is impossible even if this logic were wrong.
- * Locks are held for as few round trips as possible: uncontended reads (hospital, donors) happen
- * before the transaction and the full response is loaded after commit.
+ *    lookup and the request caps cannot race.
+ * 2. The engine plans on current stock; we lock ONLY the units it picked, FOR UPDATE SKIP LOCKED,
+ *    re-checking availability in that same statement. A unit another in-flight request already
+ *    holds is skipped, excluded, and the plan is recomputed. Requests for the same blood type
+ *    therefore run in parallel, take different units, and never wait on or deadlock each other.
+ *    The loser of a last-unit race finds nothing left and is told UNFULFILLABLE, with alternatives.
+ * 3. We insert the Reservations and set the status through the state machine. The partial unique
+ *    index (one live reservation per unit) is the database-level backstop: a double reservation
+ *    is impossible even if the logic above were wrong.
+ * Lock order (all write paths): request row -> reservation rows -> unit rows. Create only touches
+ * units it never waits for, and deliver/cancel lock the request first, so no cycle can form.
+ * Locks are held for few round trips: uncontended reads (hospital, donors) happen before the
+ * transaction and the full response is loaded after commit.
  */
 export async function createRequest(actor: Actor, input: CreateRequestInput, idempotencyKey: string) {
   if (actor.role !== "HOSPITAL" || !actor.hospitalId) throw forbidden();
@@ -87,6 +116,8 @@ export async function createRequest(actor: Actor, input: CreateRequestInput, ide
   const outcome = await withTxRetry(() =>
     prisma.$transaction(async (tx) => {
       // One round trip: transaction-local lock timeout + per-hospital serialisation.
+      // DO NOT split this into two statements: lock_timeout only covers the advisory-lock wait when
+      // set_config and pg_advisory_xact_lock are in the SAME statement (measured: split -> no timeout).
       await tx.$executeRaw`SELECT set_config('lock_timeout', ${LOCK_TIMEOUT}, true), pg_advisory_xact_lock(hashtext(${hospitalId}))`;
 
       const existing = await tx.bloodRequest.findUnique({
@@ -98,6 +129,13 @@ export async function createRequest(actor: Actor, input: CreateRequestInput, ide
           throw conflict("This Idempotency-Key was already used for a different request.", "IDEMPOTENCY_KEY_REUSED");
         }
         return { id: existing.id, replayed: true };
+      }
+
+      const lastHour = await tx.bloodRequest.count({ where: { hospitalId, createdAt: { gt: new Date(Date.now() - 3_600_000) } } });
+      if (lastHour >= MAX_REQUESTS_PER_HOUR) {
+        throw new HttpError(429, `Too many requests from your hospital in the last hour (limit ${MAX_REQUESTS_PER_HOUR}). Please wait.`, "RATE_LIMITED", {
+          retryAfterSeconds: 300,
+        });
       }
 
       const active = await tx.bloodRequest.count({ where: { hospitalId, status: { in: ACTIVE_STATUSES } } });
@@ -119,21 +157,36 @@ export async function createRequest(actor: Actor, input: CreateRequestInput, ide
         component: input.component,
         bloodType: { in: [...compat.exact, ...compat.substitutes] },
       };
-      const ids = (await tx.bloodUnit.findMany({ where: candidateWhere, select: { id: true } })).map((u) => u.id);
-      if (ids.length > 0) {
-        await tx.$queryRaw`SELECT id FROM "BloodUnit" WHERE id = ANY(${ids}) ORDER BY id FOR UPDATE`;
-      }
-      const units =
-        ids.length > 0 ? await tx.bloodUnit.findMany({ where: { ...candidateWhere, id: { in: ids } }, include: { bank: true } }) : [];
-
-      const plan = planAllocation(
-        { bloodType: input.bloodType, component: input.component, units: input.unitsRequested, urgency: input.urgency, hospital },
-        units.map((u) => ({
+      const spec = { bloodType: input.bloodType, component: input.component, units: input.unitsRequested, urgency: input.urgency, hospital };
+      const toCandidates = (rows: UnitRow[]) =>
+        rows.map((u) => ({
           id: u.id, bankId: u.bankId, bankName: u.bank.name, bankLat: u.bank.lat, bankLng: u.bank.lng,
           bloodType: u.bloodType, component: u.component, expiresAt: u.expiresAt,
-        })),
-        { now, donors },
-      );
+        }));
+
+      // Plan on current (unlocked) stock, then lock ONLY the picks. A pick that another request holds
+      // (SKIP LOCKED) or that is no longer available is excluded and we replan on what remains.
+      // Rows are never waited for, so same-type requests run in parallel and cannot deadlock.
+      const excluded = new Set<string>();
+      const held = new Set<string>();
+      let plan: MatchPlan | null = null;
+      for (let attempt = 0; attempt < MAX_REPLANS && !plan; attempt++) {
+        const rows = await tx.bloodUnit.findMany({
+          where: { ...candidateWhere, ...(excluded.size ? { id: { notIn: [...excluded] } } : {}) },
+          include: { bank: true },
+        });
+        const trial = planAllocation(spec, toCandidates(rows), { now, donors });
+        const wanted = trial.picks.map((p) => p.unitId).filter((id) => !held.has(id));
+        for (const id of await lockAvailable(tx, wanted, now)) held.add(id);
+        const missing = trial.picks.map((p) => p.unitId).filter((id) => !held.has(id));
+        if (missing.length === 0) plan = trial;
+        else missing.forEach((id) => excluded.add(id));
+      }
+      if (!plan) {
+        // Pathological contention: settle for the units we actually hold.
+        const rows = held.size ? await tx.bloodUnit.findMany({ where: { ...candidateWhere, id: { in: [...held] } }, include: { bank: true } }) : [];
+        plan = planAllocation(spec, toCandidates(rows), { now, donors });
+      }
 
       if (plan.picks.length > 0) {
         await tx.reservation.createMany({

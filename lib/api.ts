@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { Prisma } from "@prisma/client";
 import { ZodError } from "zod";
 import { HttpError } from "./errors";
+import { isPoolTimeout } from "./tx";
 
 type ErrorBody = { error: { code: string; message: string; details?: unknown } };
 
@@ -10,7 +11,12 @@ export function errorResponse(status: number, code: string, message: string, det
   return NextResponse.json(body, { status, headers });
 }
 
-const DB_UNAVAILABLE = new Set(["P1001", "P1002", "P1008", "P1017", "P2024"]);
+const DB_UNAVAILABLE = new Set(["P1001", "P1002", "P1008", "P1017"]);
+
+const busy = () =>
+  errorResponse(503, "BUSY", "Many requests are competing for the same stock right now. Please retry in a moment.", undefined, {
+    "Retry-After": "2",
+  });
 
 /** Map any thrown value to a safe JSON error response. Never leaks stack traces. */
 export function toErrorResponse(err: unknown): NextResponse {
@@ -32,15 +38,15 @@ export function toErrorResponse(err: unknown): NextResponse {
     if (err.code === "P2025") return errorResponse(404, "NOT_FOUND", "Record not found.");
     if (err.code === "P2034") return errorResponse(409, "WRITE_CONFLICT", "Another update happened at the same time. Please retry.");
     if (DB_UNAVAILABLE.has(err.code)) return dbUnavailable();
-    // Still contended after automatic retries (lock timeout / transaction timeout): ask the client to retry.
+    // Still contended after automatic retries (pool full / lock timeout / transaction timeout):
+    // the database is reachable, we are just busy, so ask the client to retry.
     const pgCode = (err.meta as { code?: string } | undefined)?.code;
-    if (err.code === "P2028" || (err.code === "P2010" && (pgCode === "55P03" || pgCode === "40P01" || pgCode === "40001"))) {
-      return errorResponse(503, "BUSY", "Many requests are competing for the same stock right now. Please retry in a moment.", undefined, {
-        "Retry-After": "2",
-      });
+    if (err.code === "P2024" || err.code === "P2028" || (err.code === "P2010" && (pgCode === "55P03" || pgCode === "40P01" || pgCode === "40001"))) {
+      return busy();
     }
   }
   if (err instanceof Prisma.PrismaClientInitializationError) return dbUnavailable();
+  if (isPoolTimeout(err)) return busy();
 
   console.error("[api] unhandled error", err);
   return errorResponse(500, "INTERNAL", "Something went wrong on our side. Please try again.");

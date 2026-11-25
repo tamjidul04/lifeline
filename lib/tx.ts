@@ -12,8 +12,15 @@ export async function setLockTimeout(tx: Tx): Promise<void> {
 // Postgres: serialization failure, deadlock detected, lock not available.
 const RETRYABLE_PG_CODES = new Set(["40001", "40P01", "55P03"]);
 
+/** The connection pool was full for too long: the database is fine, we are just busy. */
+export function isPoolTimeout(err: unknown): boolean {
+  if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2024") return true;
+  return err instanceof Error && /timed out fetching a new connection from the connection pool/i.test(err.message);
+}
+
 /** Errors where re-running the whole transaction from scratch is safe and may succeed. */
 export function isRetryable(err: unknown): boolean {
+  if (isPoolTimeout(err)) return true;
   if (!(err instanceof Prisma.PrismaClientKnownRequestError)) return false;
   // P2034 write conflict/deadlock, P2028 transaction API error (e.g. timed out),
   // P2002 unique violation (the one-live-reservation index caught a race we lost).
