@@ -37,6 +37,7 @@ async function login(email: string, password = PW) {
 
 async function main() {
   const stamp = Date.now();
+  const startedAt = new Date(Date.now() - 5000);
   const tempEmails: string[] = [];
   let reqId: string | undefined;
 
@@ -175,7 +176,14 @@ async function main() {
     let last = 0;
     for (let i = 0; i < 6; i++) last = (await login(victim, "wrong-password-1")).status;
     check("6th failed login in a row -> 429", last === 429, `got ${last}`);
+    const again: number[] = [];
+    for (let i = 0; i < 6; i++) again.push((await login(victim, "wrong-password-1")).status);
+    check("it STAYS blocked on every further attempt (count is shared by all instances)", again.every((s) => s === 429), again.join(","));
+    const blocked = await login(victim, "wrong-password-1");
+    check("blocked reply says when to retry", Number(blocked.headers.get("retry-after")) > 0);
+    check("other accounts can still sign in", (await login("donor2@lifeline.demo")).status === 200);
   } finally {
+    await prisma.auditLog.deleteMany({ where: { action: "LOGIN_FAILED", createdAt: { gte: startedAt } } });
     if (reqId) {
       await prisma.reservation.deleteMany({ where: { requestId: reqId } });
       await prisma.bloodRequest.delete({ where: { id: reqId } }).catch(() => {});

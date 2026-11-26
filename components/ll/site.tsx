@@ -44,11 +44,8 @@ export const SiteFooter = () => (
         template by Colorlib
       </p>
       <p className="ll-muted w-full text-xs">
-        Photos: U.S. Air Force, Airman 1st Class Kendall Stuckman, public domain, via{" "}
-        <a className="underline" href="https://commons.wikimedia.org/wiki/File:Tri-border_blood_donors_save_lives_(7098718).jpg">
-          Wikimedia Commons
-        </a>
-        . Illustrative only. Their use does not imply endorsement by the people shown or the U.S. Department of Defense.
+        The pictures on the home page are AI-generated illustrations made with Google Gemini. They do not show real people, patients or
+        events.
       </p>
     </div>
   </footer>

@@ -109,7 +109,7 @@ Donors give red cells, so donor suggestions always use the red-cell table, and a
 - Sessions are server-side rows: signing out or resetting revokes a copied cookie immediately.
 - Every API route checks role and ownership. Another organisation's record returns `404`, so ids cannot be probed.
 - Self-registration creates donors only. Admin accounts cannot be created through the API.
-- Cross-site state-changing requests are blocked. Failed logins are rate limited per account and per IP.
+- Cross-site state-changing requests are blocked. Failed logins are rate limited per account and per IP, with one count shared by all server instances.
 
 ## Figures
 
@@ -157,9 +157,15 @@ On npm 11+, approve the install scripts if asked: `npm approve-scripts @prisma/c
 
 The smoke and race tests use the database in `.env`.
 
+## Credits
+
+- Home page pictures are **AI-generated illustrations** made with Google Gemini. They do not show real people or events.
+- Visual style inspired by the MedCare template by Colorlib. No template code or images are used.
+- Built with help from AI coding assistants.
+
 ## Known limitations
 
-- The login rate limiter lives in each server instance's memory, so on serverless it slows guessing but is not a global limit. A shared store would fix that.
+- Failed sign-ins are counted in the database (5 per account and address in 5 minutes; 30 per address in 15 minutes). Attempts sent at exactly the same moment can slip a few past the limit.
 - Distances are straight-line, and courier time is an estimate. There is no routing or traffic data.
 - No crossmatching, antibody screening, irradiation or other clinical requirements.
 - Platelet compatibility is simplified.

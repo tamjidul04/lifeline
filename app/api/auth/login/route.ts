@@ -2,7 +2,8 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db";
 import { handle, readJson } from "@/lib/api";
 import { loginSchema } from "@/lib/schemas";
-import { accountLimiter, clientIpFrom, ipLimiter } from "@/lib/rate-limit";
+import { clientIpFrom } from "@/lib/rate-limit";
+import { loginRetryAfter } from "@/lib/login-limit";
 import { startSession } from "@/lib/auth";
 import { HttpError } from "@/lib/errors";
 import { audit } from "@/lib/audit";
@@ -16,9 +17,9 @@ const INVALID = () => new HttpError(401, "Invalid email or password.", "INVALID_
 export const POST = handle(async (req) => {
   const { email, password } = loginSchema.parse(await readJson(req));
   const ip = clientIpFrom(req.headers);
-  const accountKey = `${ip}|${email}`;
 
-  const wait = Math.max(accountLimiter.retryAfter(accountKey), ipLimiter.retryAfter(ip));
+  // Blocked attempts are not recorded, so hammering the endpoint does not extend the lockout.
+  const wait = await loginRetryAfter(email, ip);
   if (wait > 0) {
     throw new HttpError(429, `Too many failed attempts. Try again in ${Math.ceil(wait / 60)} minute(s).`, "RATE_LIMITED", {
       retryAfterSeconds: wait,
@@ -29,14 +30,11 @@ export const POST = handle(async (req) => {
   const ok = await bcrypt.compare(password, user?.passwordHash ?? getDummyHash());
 
   if (!user || !ok) {
-    accountLimiter.recordFailure(accountKey);
-    ipLimiter.recordFailure(ip);
     await audit({ actorId: user?.id ?? null, actorLabel: email, action: "LOGIN_FAILED", entity: "User", entityId: user?.id, detail: { ip } });
     // Same message whether the email exists or not: no user enumeration.
     throw INVALID();
   }
 
-  accountLimiter.clear(accountKey);
   await startSession(user.id);
   await audit({ actorId: user.id, actorLabel: user.email, action: "LOGIN", entity: "User", entityId: user.id });
 

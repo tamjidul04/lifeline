@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { BagLabel } from "@/components/ll/ui";
 import { SiteFooter, SiteHeader } from "@/components/ll/site";
+import { ScrollReveal } from "@/components/ll/reveal";
 
 const PILLARS = [
   { title: "Safe matching", text: "Only compatible, unexpired blood is offered. The soonest-expiring safe bag is preferred, so less is wasted." },
@@ -34,13 +35,15 @@ export default function Home() {
   return (
     <>
       <SiteHeader links={[{ href: "#problem", label: "The problem" }, { href: "#how", label: "How it works" }, { href: "#who", label: "Who uses it" }]} />
+      <ScrollReveal />
       <main className="flex-1">
         <section className="bg-[var(--paper)]">
           <div className="ll-wrap grid items-center gap-10 py-14 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,.9fr)] lg:py-20">
-            <div>
+            <div className="ll-enter">
+              <p lang="bn" className="mb-3 text-lg font-bold text-[var(--brand)]">রক্ত দিন, জীবন বাঁচান</p>
               <h1 className="ll-display-xl">The right blood, to the right hospital, before it expires.</h1>
               <p className="ll-muted mt-5 max-w-xl text-lg">
-                LifeLine helps hospitals find compatible blood across blood banks, holds it so nobody else can take it, and explains every
+                LifeLine, built with Bangladesh in mind, helps hospitals find compatible blood across blood banks, holds it so nobody else can take it, and explains every
                 decision.
               </p>
               <div className="mt-8 flex flex-wrap gap-3">
@@ -48,22 +51,25 @@ export default function Home() {
                 <Link className="ll-btn ll-btn-outline" href="/register">Register as a donor</Link>
               </div>
             </div>
-            <Image
-              src="/photos/donor.jpg"
-              alt="A smiling man giving blood in a donation chair while a staff member looks after him"
-              width={1280}
-              height={853}
-              priority
-              sizes="(min-width: 1024px) 560px, 100vw"
-              className="h-auto w-full"
-            />
+            <figure className="ll-enter ll-enter-late">
+              <Image
+                src="/photos/ai-donation.jpg"
+                alt="Illustration: a young man calmly donating blood in a donation chair while a health worker prepares supplies"
+                width={1600}
+                height={1073}
+                priority
+                sizes="(min-width: 1024px) 560px, 100vw"
+                className="h-auto w-full"
+              />
+              <figcaption className="ll-muted mt-1.5 text-xs">AI-generated illustration</figcaption>
+            </figure>
           </div>
         </section>
 
         <section className="ll-band" aria-label="What LifeLine does">
           <div className="ll-wrap grid gap-8 py-10 md:grid-cols-3">
-            {PILLARS.map((p) => (
-              <div key={p.title}>
+            {PILLARS.map((p, i) => (
+              <div key={p.title} data-reveal style={{ "--reveal-delay": `${i * 120}ms` } as React.CSSProperties}>
                 <h2 className="ll-h2">{p.title}</h2>
                 <p className="mt-2 text-[15px]">{p.text}</p>
               </div>
@@ -72,15 +78,18 @@ export default function Home() {
         </section>
 
         <section id="problem" className="ll-wrap py-14" aria-labelledby="problem-title">
-          <div className="grid items-center gap-8 md:grid-cols-2">
-            <Image
-              src="/photos/donation-arm.jpg"
-              alt="A donor's arm resting on a support during a blood donation"
-              width={1280}
-              height={853}
-              sizes="(min-width: 768px) 580px, 100vw"
-              className="h-auto w-full"
-            />
+          <div className="grid items-center gap-8 md:grid-cols-2" data-reveal>
+            <figure>
+              <Image
+                src="/photos/ai-transfusion.jpg"
+                alt="Illustration: a nurse checks a blood transfusion for a woman resting in a hospital bed while a relative sits beside her"
+                width={1600}
+                height={1073}
+                sizes="(min-width: 768px) 580px, 100vw"
+                className="h-auto w-full"
+              />
+              <figcaption className="ll-muted mt-1.5 text-xs">AI-generated illustration</figcaption>
+            </figure>
             <div>
               <h2 id="problem-title" className="ll-display-l">The problem we are solving</h2>
               <p className="ll-muted mt-3">
@@ -90,8 +99,8 @@ export default function Home() {
             </div>
           </div>
           <div className="mt-8 grid gap-5 md:grid-cols-3">
-            {PROBLEMS.map((p) => (
-              <article key={p.title} className="ll-card">
+            {PROBLEMS.map((p, i) => (
+              <article key={p.title} className="ll-card" data-reveal style={{ "--reveal-delay": `${i * 120}ms` } as React.CSSProperties}>
                 <h3 className="ll-h2">{p.title}</h3>
                 <span aria-hidden="true" className="ll-rule-short" />
                 <p className="ll-muted">{p.text}</p>
@@ -102,10 +111,10 @@ export default function Home() {
 
         <section id="how" className="bg-[var(--paper)] py-14" aria-labelledby="how-title">
           <div className="ll-wrap">
-            <h2 id="how-title" className="ll-display-l">How it works</h2>
+            <h2 id="how-title" className="ll-display-l" data-reveal>How it works</h2>
             <ol className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-5">
               {STEPS.map(([title, text], i) => (
-                <li key={title} className="ll-card !px-5">
+                <li key={title} className="ll-card !px-5" data-reveal style={{ "--reveal-delay": `${i * 130}ms` } as React.CSSProperties}>
                   <span className="ll-display-l block text-[var(--brand)]" aria-hidden="true">{i + 1}</span>
                   <h3 className="ll-h2 mt-2" style={{ fontSize: 18 }}>{title}</h3>
                   <p className="ll-muted mt-2 text-sm">{text}</p>
@@ -116,14 +125,14 @@ export default function Home() {
         </section>
 
         <section className="ll-wrap grid items-center gap-10 pt-14 lg:grid-cols-2" aria-labelledby="decision-title">
-          <div>
+          <div data-reveal>
             <h2 id="decision-title" className="ll-display-l">What a decision looks like</h2>
             <p className="ll-muted mt-3">
               Every held bag shows its blood group, where it comes from and why it was chosen. A dashed border marks a compatible
               substitute. Substitutes are only used when the urgency allows them.
             </p>
           </div>
-          <figure className="ll-sheet !p-6">
+          <figure className="ll-sheet !p-6" data-reveal style={{ "--reveal-delay": "150ms" } as React.CSSProperties}>
             <figcaption className="ll-eyebrow mb-3">Example: critical request for AB− red cells</figcaption>
             <div className="grid gap-2.5">
               <BagLabel type="AB_NEG" component="RBC">
@@ -140,10 +149,10 @@ export default function Home() {
         </section>
 
         <section id="who" className="ll-wrap py-14" aria-labelledby="who-title">
-          <h2 id="who-title" className="ll-display-l">Who uses it</h2>
+          <h2 id="who-title" className="ll-display-l" data-reveal>Who uses it</h2>
           <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-            {ROLES.map(([title, text]) => (
-              <article key={title} className="ll-card">
+            {ROLES.map(([title, text], i) => (
+              <article key={title} className="ll-card" data-reveal style={{ "--reveal-delay": `${i * 110}ms` } as React.CSSProperties}>
                 <h3 className="ll-h2">{title}</h3>
                 <span aria-hidden="true" className="ll-rule-short" />
                 <p className="ll-muted text-[15px]">{text}</p>
@@ -153,7 +162,7 @@ export default function Home() {
         </section>
 
         <section className="ll-band" aria-labelledby="judge-title">
-          <div className="ll-wrap flex flex-wrap items-center justify-between gap-5 py-9">
+          <div className="ll-wrap flex flex-wrap items-center justify-between gap-5 py-9" data-reveal>
             <div>
               <h2 id="judge-title" className="ll-display-l">Judging this project?</h2>
               <p className="mt-1">Sign in with a test account, then open Judge demo to try both advanced challenges.</p>
