@@ -9,7 +9,7 @@ type Entry = { id: string; actorLabel: string | null; action: string; entity: st
 type Audit = { page: number; total: number; totalPages: number; entries: Entry[] };
 
 const NEW_STAFF = { name: "", email: "", password: "", role: "HOSPITAL", orgName: "", lat: "23.78", lng: "90.40" };
-const ACTIONS = ["REQUEST_CREATED", "REQUEST_CANCELLED", "UNIT_DELIVERED", "UNITS_ADDED", "UNIT_RETIRED", "USER_CREATED", "REGISTER", "LOGIN", "LOGIN_FAILED", "LOGOUT", "DEMO_RESET"];
+const ACTIONS = ["REQUEST_CREATED", "REQUEST_CANCELLED", "UNIT_DELIVERED", "UNITS_ADDED", "UNIT_UPDATED", "UNIT_RETIRED", "USER_CREATED", "REGISTER", "LOGIN", "LOGIN_FAILED", "LOGOUT", "DEMO_RESET"];
 
 export function Admin() {
   const [users, setUsers] = useState<User[] | null>(null);

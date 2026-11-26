@@ -63,16 +63,20 @@ const MAX_REPLANS = 8;
 export const MAX_REQUESTS_PER_HOUR = 30;
 
 /**
- * Lock the given units for this transaction, but only those that are STILL available, and skip
- * (never wait for) rows another transaction holds. Returns the ids we now hold.
+ * Lock the given units for this transaction, but only those that are STILL available and UNCHANGED
+ * since we planned on them (same version, so a concurrent edit of blood group, component or expiry
+ * can never slip an unsuitable bag into a request). Rows another transaction holds are skipped,
+ * never waited for. Returns the ids we now hold.
  * Availability is re-checked in the same statement, so a unit whose reservation committed after
  * we planned is not returned. The partial unique index remains the final backstop.
  */
-async function lockAvailable(tx: Prisma.TransactionClient, ids: string[], now: Date): Promise<string[]> {
-  if (ids.length === 0) return [];
+async function lockAvailable(tx: Prisma.TransactionClient, wanted: { id: string; version: number }[], now: Date): Promise<string[]> {
+  if (wanted.length === 0) return [];
+  const ids = wanted.map((w) => w.id);
+  const versions = wanted.map((w) => w.version);
   const rows = await tx.$queryRaw<{ id: string }[]>`
     SELECT u.id FROM "BloodUnit" u
-    WHERE u.id = ANY(${ids})
+    WHERE (u.id, u.version) IN (SELECT * FROM unnest(${ids}::text[], ${versions}::int[]))
       AND u.status = 'AVAILABLE'
       AND u."expiresAt" > ${now.toISOString()}::timestamp
       AND NOT EXISTS (SELECT 1 FROM "Reservation" r WHERE r."unitId" = u.id AND r.status IN ('ACTIVE', 'DELIVERED'))
@@ -176,7 +180,8 @@ export async function createRequest(actor: Actor, input: CreateRequestInput, ide
           include: { bank: true },
         });
         const trial = planAllocation(spec, toCandidates(rows), { now, donors });
-        const wanted = trial.picks.map((p) => p.unitId).filter((id) => !held.has(id));
+        const versionOf = new Map(rows.map((u) => [u.id, u.version]));
+        const wanted = trial.picks.filter((p) => !held.has(p.unitId)).map((p) => ({ id: p.unitId, version: versionOf.get(p.unitId)! }));
         for (const id of await lockAvailable(tx, wanted, now)) held.add(id);
         const missing = trial.picks.map((p) => p.unitId).filter((id) => !held.has(id));
         if (missing.length === 0) plan = trial;

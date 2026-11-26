@@ -105,6 +105,31 @@ export const createUnitSchema = z.object({
     .refine((d) => d.getTime() < Date.now() + 400 * 86_400_000, { error: "Expiry is too far in the future." }),
 });
 
+const futureExpiry = z
+  .string({ error: "Expiry date is required." })
+  .datetime({ error: "Expiry must be an ISO date-time, e.g. 2026-12-01T10:00:00Z." })
+  .transform((s) => new Date(s))
+  .refine((d) => d.getTime() > Date.now(), { error: "Expiry must be in the future." })
+  .refine((d) => d.getTime() < Date.now() + 400 * 86_400_000, { error: "Expiry is too far in the future." });
+
+const unitVersion = z.number({ error: "version is required for safe updates." }).int().min(0);
+
+/** Change one unit: correct its details, or retire it. `version` makes stale edits fail safely. */
+export const updateUnitSchema = z.discriminatedUnion(
+  "action",
+  [
+    z.object({
+      action: z.literal("EDIT"),
+      version: unitVersion,
+      bloodType: z.enum(BLOOD_TYPES, { error: "Choose a valid blood type." }),
+      component: z.enum(COMPONENTS, { error: "Choose red cells, plasma or platelets." }),
+      expiresAt: futureExpiry,
+    }),
+    z.object({ action: z.literal("RETIRE"), version: unitVersion }),
+  ],
+  { error: "Unsupported action." },
+);
+
 export const listUnitsSchema = z.object({
   q: z.string().trim().max(60).optional(),
   bloodType: z.enum(BLOOD_TYPES).optional(),

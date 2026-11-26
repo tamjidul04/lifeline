@@ -91,6 +91,23 @@ async function main() {
   check("quantity 0 -> 400", (await call("/api/units", central, { method: "POST", body: JSON.stringify({ bloodType: "B_NEG", component: "RBC", quantity: 0, expiresAt: future }) })).status === 400);
   check("admin cannot add stock -> 403", (await call("/api/units", admin, { method: "POST", body: JSON.stringify({ bloodType: "B_NEG", component: "RBC", quantity: 1, expiresAt: future }) })).status === 403);
 
+  // ---- editing a unit (update)
+  const fresh = (await call("/api/units?pageSize=100&bloodType=B_NEG&component=RBC&status=AVAILABLE", central)).json.units.find((u: Json) => +new Date(u.expiresAt) === +new Date(future));
+  const edit = (cookie: string, id: string, version: number, extra: object = {}) =>
+    call(`/api/units/${id}`, cookie, { method: "PATCH", body: JSON.stringify({ action: "EDIT", version, bloodType: "B_POS", component: "RBC", expiresAt: new Date(Date.now() + 9 * 86_400_000).toISOString(), ...extra }) });
+  check("edit: other bank -> 404", (await edit(riverside, fresh.id, fresh.version)).status === 404);
+  check("edit: admin -> 403", (await edit(admin, fresh.id, fresh.version)).status === 403);
+  check("edit: past expiry -> 400", (await edit(central, fresh.id, fresh.version, { expiresAt: "2020-01-01T00:00:00Z" })).status === 400);
+  check("edit: invalid blood type -> 400", (await edit(central, fresh.id, fresh.version, { bloodType: "C_POS" })).status === 400);
+  const edited = await edit(central, fresh.id, fresh.version);
+  check("edit: owning bank corrects blood group and expiry", edited.status === 200 && edited.json.unit.bloodType === "B_POS" && edited.json.unit.version === fresh.version + 1);
+  check("edit: the stored row changed", (await prisma.bloodUnit.findUniqueOrThrow({ where: { id: fresh.id } })).bloodType === "B_POS");
+  check("edit: stale version -> 409", (await edit(central, fresh.id, fresh.version)).status === 409);
+  const old = await prisma.bloodUnit.findFirstOrThrow({ where: { bankId: centralId, status: "AVAILABLE", expiresAt: { lt: new Date() } } });
+  const revive = await edit(central, old.id, old.version);
+  check("edit: an expired unit cannot be brought back -> 409", revive.status === 409 && revive.json.error.code === "UNIT_EXPIRED");
+  check("edit is in the audit log", (await call("/api/admin/audit?action=UNIT_UPDATED", admin)).json.total >= 1);
+
   // ---- dashboards use the single availability definition
   const dbAvailable = await prisma.bloodUnit.count({ where: { status: "AVAILABLE", expiresAt: { gt: new Date() }, reservations: { none: { status: { in: ["ACTIVE", "DELIVERED"] } } } } });
   const dashAdmin = await call("/api/dashboard", admin);
@@ -115,6 +132,13 @@ async function main() {
   const dashHosp = await call("/api/dashboard", city);
   check("hospital dashboard counts by status", dashHosp.json.dashboard.requestsByStatus.MATCHED >= 1);
   check("bank dashboard shows reservations awaiting delivery", (await call("/api/dashboard", riverside)).json.dashboard.reservationsAwaitingDelivery >= 0);
+
+  const heldId = create.json.request.reservations[0].unit.id;
+  const heldRow = await prisma.bloodUnit.findUniqueOrThrow({ where: { id: heldId } });
+  const heldOwner = heldRow.bankId === centralId ? central : riverside;
+  const heldEdit = await call(`/api/units/${heldId}`, heldOwner, { method: "PATCH", body: JSON.stringify({ action: "EDIT", version: heldRow.version, bloodType: "O_POS", component: "RBC", expiresAt: new Date(Date.now() + 9 * 86_400_000).toISOString() }) });
+  check("edit: a held unit cannot be changed -> 409", heldEdit.status === 409 && heldEdit.json.error.code === "UNIT_IN_USE");
+  check("edit: ...and its blood group is unchanged", (await prisma.bloodUnit.findUniqueOrThrow({ where: { id: heldId } })).bloodType === heldRow.bloodType);
 
   // ---- audit log
   check("audit: bank -> 403", (await call("/api/admin/audit", central)).status === 403);

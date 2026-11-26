@@ -17,7 +17,7 @@ LifeLine lets a hospital request blood, matches compatible units across blood ba
 | Role | Can do |
 |---|---|
 | Hospital staff | Preview a match, create and cancel its own requests, see its own requests only |
-| Blood bank | Manage its own stock, see requests that hold its bags, mark bags delivered |
+| Blood bank | Add, view, edit and retire its own stock (held, issued and expired bags cannot be edited), see requests that hold its bags, mark bags delivered |
 | Donor | Self-register, see donation eligibility (90-day rule) |
 | Administrator | View all stock and requests, create hospital/bank accounts, read the audit log, reset demo data |
 
@@ -45,6 +45,7 @@ Creating a request is one read-committed transaction (`lib/requests.ts`):
 
 Also:
 - **Idempotency:** every create needs an `Idempotency-Key`. Same key and body replays the original; same key with a different body is `409`.
+- **Editing stock:** a bag is reserved only if it is unchanged since the engine chose it (same `version`), so an edit made at the same moment can never put the wrong blood into a request.
 - **Cancel vs deliver:** both lock the request row first, read status after the lock, and are safe to repeat. Exactly one of the two wins.
 - **Recovery:** lock timeouts, deadlocks and a full connection pool are retried with backoff. If still busy, the API answers `503 BUSY` with `Retry-After`.
 

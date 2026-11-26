@@ -34,6 +34,8 @@ export function Inventory({ canEdit }: { canEdit: boolean }) {
   const [confirm, setConfirm] = useState<string | null>(null);
   const [adding, setAdding] = useState({ bloodType: "O_POS", component: "RBC", quantity: "1", date: dateInput(21) });
   const [addErrors, setAddErrors] = useState<Record<string, string>>({});
+  const [editing, setEditing] = useState<{ id: string; version: number; bloodType: string; component: string; date: string; originalDate: string; expiresAt: string } | null>(null);
+  const [editErrors, setEditErrors] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     const q = new URLSearchParams({ page: String(page), pageSize: "20" });
@@ -84,6 +86,34 @@ export function Inventory({ canEdit }: { canEdit: boolean }) {
       });
       if (res.ok) return { ok: true, message: `Added ${res.data.added} unit(s).` };
       setAddErrors(res.error.fields);
+      return { ok: false, message: describeError(res.error) };
+    });
+  };
+
+  const startEdit = (u: Unit) => {
+    const date = new Date(u.expiresAt).toLocaleDateString("en-CA"); // local YYYY-MM-DD
+    setEditErrors({});
+    setConfirm(null);
+    setEditing({ id: u.id, version: u.version, bloodType: u.bloodType, component: u.component, date, originalDate: date, expiresAt: u.expiresAt });
+  };
+
+  const saveEdit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editing) return;
+    setEditErrors({});
+    run(async () => {
+      // An untouched date keeps the exact original expiry time.
+      const picked = new Date(`${editing.date}T23:59:00`);
+      const expiresAt = editing.date === editing.originalDate ? editing.expiresAt : Number.isNaN(picked.getTime()) ? "" : picked.toISOString();
+      const res = await api(`/api/units/${editing.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ action: "EDIT", version: editing.version, bloodType: editing.bloodType, component: editing.component, expiresAt }),
+      });
+      if (res.ok) {
+        setEditing(null);
+        return { ok: true, message: "Unit updated." };
+      }
+      setEditErrors(res.error.fields);
       return { ok: false, message: describeError(res.error) };
     });
   };
@@ -144,6 +174,34 @@ export function Inventory({ canEdit }: { canEdit: boolean }) {
         </form>
       )}
 
+      {editing && (
+        <form className="ll-sheet mt-4 !border-[var(--brand)]" onSubmit={saveEdit} noValidate aria-labelledby="edit-title">
+          <h2 id="edit-title" className="ll-h2">Edit unit</h2>
+          <p className="ll-muted text-sm">Correct a recording mistake. Held, issued and expired units cannot be edited.</p>
+          <div className="mt-2 flex flex-wrap items-end gap-2">
+            <label className="min-w-0 flex-1 basis-24 text-[13px]">
+              <span className="ll-muted block">Blood group</span>
+              <select autoFocus id="edit-bloodType" className="ll-input" value={editing.bloodType} onChange={(e) => setEditing({ ...editing, bloodType: e.target.value })}>
+                {BLOOD_TYPES.map((t) => <option key={t} value={t}>{bloodTypeLabel(t)}</option>)}
+              </select>
+            </label>
+            <label className="min-w-0 flex-1 basis-32 text-[13px]">
+              <span className="ll-muted block">Component</span>
+              <select id="edit-component" className="ll-input" value={editing.component} onChange={(e) => setEditing({ ...editing, component: e.target.value })}>
+                {COMPONENTS.map((c) => <option key={c} value={c}>{sentence(componentLabel(c))}</option>)}
+              </select>
+            </label>
+            <label className="min-w-0 flex-1 basis-32 text-[13px]">
+              <span className="ll-muted block">Expiry date</span>
+              <input id="edit-date" className="ll-input" type="date" value={editing.date} onChange={(e) => setEditing({ ...editing, date: e.target.value })} />
+            </label>
+            <button className="ll-btn" disabled={busy}>Save changes</button>
+            <button type="button" className="ll-btn ll-btn-quiet" onClick={() => setEditing(null)}>Cancel</button>
+          </div>
+          {Object.entries(editErrors).map(([k, v]) => <p key={k} className="ll-error">{v}</p>)}
+        </form>
+      )}
+
       <section className="ll-sheet mt-4" aria-labelledby="units-title">
         <h2 id="units-title" className="ll-h2">Units</h2>
         <div className="my-3 flex flex-wrap items-end gap-2">
@@ -190,7 +248,10 @@ export function Inventory({ canEdit }: { canEdit: boolean }) {
                             <button className="ll-btn ll-btn-quiet ll-btn-sm" onClick={() => setConfirm(null)}>Keep</button>
                           </span>
                         ) : (
-                          <button className="ll-btn ll-btn-quiet ll-btn-sm" onClick={() => setConfirm(u.id)}>Retire</button>
+                          <span className="flex flex-wrap gap-1">
+                            {u.status === "AVAILABLE" && <button className="ll-btn ll-btn-quiet ll-btn-sm" onClick={() => startEdit(u)}>Edit</button>}
+                            <button className="ll-btn ll-btn-quiet ll-btn-sm" onClick={() => setConfirm(u.id)}>Retire</button>
+                          </span>
                         )
                       ) : (
                         <span className="ll-muted">none</span>

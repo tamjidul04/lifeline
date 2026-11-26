@@ -188,6 +188,11 @@ async function main() {
   check("search 'o+' leaves only O+ rows", await until(`(() => { const r = [...document.querySelectorAll(".ll-table tbody tr td:first-child")]; return r.length > 0 && r.every((c) => c.textContent === "O+"); })()`, 40_000));
   await clickText("Add to stock");
   check("bank adds a unit", await until(hasText("Added 1 unit(s)."), 40_000));
+  await sleep(1500);
+  await clickText("Edit");
+  check("edit panel opens", await until(hasText("Save changes"), 20_000));
+  await clickText("Save changes");
+  check("bank edits a unit", await until(hasText("Unit updated."), 40_000));
   await layoutAtPhone("/inventory", "inventory");
   await layoutAtPhone("/dashboard", "bank-overview");
 

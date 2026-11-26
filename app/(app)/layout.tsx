@@ -1,9 +1,9 @@
-import Link from "next/link";
 import type { Role } from "@prisma/client";
 import { requirePageUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { Nav } from "@/components/ll/nav";
 import { LogoutButton } from "@/components/logout-button";
+import { Brand, SiteFooter, UtilityBar } from "@/components/ll/site";
 
 const DEMO = { href: "/demo", label: "Judge demo" };
 const LINKS: Record<Role, { href: string; label: string }[]> = {
@@ -27,12 +27,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <>
       <a href="#content" className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:bg-white focus:p-2">Skip to content</a>
+      <UtilityBar />
       <header className="ll-topbar">
         <div className="ll-wrap flex flex-wrap items-center gap-x-5 gap-y-1 py-2.5">
-          <Link href="/dashboard" className="ll-h2 flex items-center gap-2">
-            <span aria-hidden="true" className="inline-block h-4 w-3 rounded-[50%_50%_50%_50%/60%_60%_40%_40%] bg-[var(--crit)]" />
-            LifeLine
-          </Link>
+          <Brand href="/dashboard" />
           <div className="order-3 w-full min-w-0 md:order-none md:w-auto md:flex-1">
             <Nav links={LINKS[actor.role]} />
           </div>
@@ -45,7 +43,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           </div>
         </div>
       </header>
-      <main id="content" className="ll-wrap flex-1 py-5 pb-14">{children}</main>
+      <main id="content" className="ll-wrap flex-1 py-6 pb-14">{children}</main>
+      <SiteFooter />
     </>
   );
 }

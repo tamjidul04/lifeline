@@ -89,7 +89,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     <Card className="w-full max-w-sm">
       <CardHeader>
         <CardTitle>
-          <h1 className="text-xl">{isLogin ? "Sign in to LifeLine" : "Register as a donor"}</h1>
+          <h1 className="ll-h2">{isLogin ? "Sign in to LifeLine" : "Register as a donor"}</h1>
         </CardTitle>
         <CardDescription>
           {isLogin
@@ -110,7 +110,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
                 name="bloodType"
                 required
                 defaultValue=""
-                className="h-9 rounded-md border bg-background px-3 text-sm focus-visible:outline-2 focus-visible:outline-teal-600"
+                className="h-9 rounded-md border bg-background px-3 text-sm focus-visible:outline-2 focus-visible:outline-blue-600"
                 aria-invalid={!!fieldErrors.bloodType}
               >
                 <option value="" disabled>

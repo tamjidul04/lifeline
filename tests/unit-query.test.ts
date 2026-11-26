@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Actor } from "@/lib/access";
 import { bloodTypesMatching, buildUnitOrder, buildUnitWhere, derivedUnitStatus } from "@/lib/unit-query";
 import { fulfilmentRate } from "@/lib/stats";
-import { createUnitSchema, listUnitsSchema } from "@/lib/schemas";
+import { createUnitSchema, listUnitsSchema, updateUnitSchema } from "@/lib/schemas";
 
 const NOW = new Date("2026-11-25T12:00:00Z");
 const base = { name: "x", email: "x@y.z", hospitalId: null, donorId: null };
@@ -80,5 +80,20 @@ describe("input validation", () => {
     expect(listUnitsSchema.safeParse({ page: "0" }).success).toBe(false);
     expect(listUnitsSchema.safeParse({ sort: "random" }).success).toBe(false);
     expect(listUnitsSchema.parse({}).pageSize).toBe(25);
+  });
+});
+
+describe("unit update validation", () => {
+  const later = () => new Date(Date.now() + 86_400_000).toISOString();
+  it("accepts a full edit and a retire", () => {
+    expect(updateUnitSchema.safeParse({ action: "EDIT", version: 0, bloodType: "O_POS", component: "RBC", expiresAt: later() }).success).toBe(true);
+    expect(updateUnitSchema.safeParse({ action: "RETIRE", version: 3 }).success).toBe(true);
+  });
+  it("rejects unknown actions, a missing version and a past expiry, and strips a smuggled status", () => {
+    expect(updateUnitSchema.safeParse({ action: "DELETE", version: 0 }).success).toBe(false);
+    expect(updateUnitSchema.safeParse({ action: "RETIRE" }).success).toBe(false);
+    expect(updateUnitSchema.safeParse({ action: "EDIT", version: 0, bloodType: "O_POS", component: "RBC", expiresAt: "2020-01-01T00:00:00Z" }).success).toBe(false);
+    const parsed = updateUnitSchema.parse({ action: "EDIT", version: 0, bloodType: "O_POS", component: "RBC", expiresAt: later(), status: "ISSUED" });
+    expect("status" in parsed).toBe(false);
   });
 });

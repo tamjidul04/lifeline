@@ -91,7 +91,7 @@ export function JudgeDemo() {
             ["M08", "Live site and a README with setup, design and known limits"],
           ].map(([k, v]) => (
             <div key={k} className="contents">
-              <dt className="ll-mono text-[var(--teal)]">{k}</dt>
+              <dt className="ll-mono text-[var(--brand)]">{k}</dt>
               <dd>{v}</dd>
             </div>
           ))}

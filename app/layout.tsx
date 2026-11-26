@@ -1,10 +1,9 @@
 import type { Metadata, Viewport } from "next";
-import { Archivo_Narrow, Atkinson_Hyperlegible, IBM_Plex_Mono } from "next/font/google";
+import { IBM_Plex_Mono, Open_Sans, Playfair_Display } from "next/font/google";
 import "./globals.css";
 
-// Atkinson Hyperlegible is designed for legibility, which suits clinical screens.
-const body = Atkinson_Hyperlegible({ variable: "--font-sans", weight: ["400", "700"], subsets: ["latin"] });
-const display = Archivo_Narrow({ variable: "--font-display", weight: ["600", "700"], subsets: ["latin"] });
+const body = Open_Sans({ variable: "--font-sans", subsets: ["latin"] });
+const display = Playfair_Display({ variable: "--font-display", weight: ["400", "700"], subsets: ["latin"] });
 const mono = IBM_Plex_Mono({ variable: "--font-geist-mono", weight: ["400", "500"], subsets: ["latin"] });
 
 export const metadata: Metadata = {
