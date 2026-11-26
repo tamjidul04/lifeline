@@ -32,8 +32,9 @@ const prisma = new PrismaClient().$extends({
           return await query(args);
         } catch (e) {
           const code = (e as { code?: string }).code;
-          if (attempt >= 6 || !code || !CONNECTION_ERRORS.has(code)) throw e;
-          await new Promise((r) => setTimeout(r, 1000 * attempt));
+          // Wait out outages of up to ~3 minutes (12 attempts, backoff capped at 20 s).
+          if (attempt >= 12 || !code || !CONNECTION_ERRORS.has(code)) throw e;
+          await new Promise((r) => setTimeout(r, Math.min(20_000, 1000 * attempt * 2)));
         }
       }
     },
@@ -48,12 +49,29 @@ const fail = (msg: string) => {
 const latencies: number[] = [];
 const statusCounts: Record<number, number> = {};
 
+/**
+ * A drop BEFORE the TLS handshake completes means the request never reached the server, so
+ * retrying cannot duplicate anything. (Common on flaky home connections; not an app failure.)
+ * Any other network error is left to fail loudly.
+ */
+async function fetchWithHandshakeRetry(url: string, init: RequestInit): Promise<Response> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fetch(url, init);
+    } catch (e) {
+      const cause = String((e as { cause?: { message?: string } }).cause?.message ?? "");
+      if (attempt >= 4 || !/before secure TLS connection was established|ECONNREFUSED/.test(cause)) throw e;
+      await new Promise((r) => setTimeout(r, 300 * attempt));
+    }
+  }
+}
+
 async function call(path: string, cookie: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers);
   headers.set("cookie", cookie);
   if (init.body) headers.set("content-type", "application/json");
   const t = performance.now();
-  const res = await fetch(BASE + path, { ...init, headers });
+  const res = await fetchWithHandshakeRetry(BASE + path, { ...init, headers });
   latencies.push(performance.now() - t);
   statusCounts[res.status] = (statusCounts[res.status] ?? 0) + 1;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test script inspects arbitrary JSON
@@ -62,7 +80,7 @@ async function call(path: string, cookie: string, init: RequestInit = {}) {
 }
 
 async function login(email: string) {
-  const res = await fetch(BASE + "/api/auth/login", {
+  const res = await fetchWithHandshakeRetry(BASE + "/api/auth/login", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ email, password: PW }),
@@ -82,7 +100,8 @@ const AB_NEG_1 = { bloodType: "AB_NEG", component: "RBC", unitsRequested: 1, urg
  * a concurrently running test is never disturbed.
  */
 async function removeFixtures(onlyThisRun = false) {
-  const staleBefore = Date.now() - 30 * 60_000;
+  // STALE_MINUTES=0 sweeps every leftover fixture (only do that when no other race test is running).
+  const staleBefore = Date.now() - Number(process.env.STALE_MINUTES ?? 30) * 60_000;
   const all = await prisma.user.findMany({ where: { email: { startsWith: "race", endsWith: "@lifeline.test" } }, select: { id: true, email: true } });
   const users = all.filter((u) => {
     const stamp = Number(/^race(\d+)\./.exec(u.email)?.[1]);
