@@ -264,7 +264,11 @@ function summarise(req: RequestSpec, status: MatchPlan["status"], got: number, r
     .map((c) => `${rejections[c]} ${REJECTION_TEXT[c]}`)
     .join(", ");
   const base =
-    status === "PARTIAL" ? `Only ${got} of ${what} can be supplied now.` : `None of the ${what} can be supplied now.`;
+    status === "PARTIAL"
+      ? `Only ${got} of ${what} can be supplied now.`
+      : req.units === 1
+        ? `The requested ${what.replace(/^1 /, "")} cannot be supplied now.`
+        : `None of the ${what} can be supplied now.`;
   const conflict =
     req.urgency === "ROUTINE" && (rejections.SUBSTITUTE_NOT_ALLOWED ?? 0) > 0
       ? got > 0

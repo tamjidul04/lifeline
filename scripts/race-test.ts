@@ -184,7 +184,7 @@ async function main() {
       if (live.some((g) => g._count > 1)) fail(`iter ${it}: a unit has more than one live reservation`);
       if (live.length !== k) fail(`iter ${it}: ${live.length} units reserved, expected ${k}`);
       const loser = results.find((r) => r.json?.request?.status === "UNFULFILLABLE");
-      if (loser && !String(loser.json.request.explanation?.summary ?? "").includes("None of")) fail(`iter ${it}: loser has no explanation`);
+      if (loser && !String(loser.json.request.explanation?.summary ?? "").includes("cannot be supplied")) fail(`iter ${it}: loser has no explanation`);
 
       // ---------- Scenario B: same Idempotency-Key fired 5x concurrently ----------
       if (it % 10 === 0) {

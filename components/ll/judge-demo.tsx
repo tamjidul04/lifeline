@@ -50,7 +50,7 @@ export function JudgeDemo() {
               <div className="mt-2 font-medium text-white">
                 {race.passed ? "PASS" : "FAIL"}: {race.winners} winner · {race.liveReservationsOnUnit} live reservation on the unit · {race.unitsDoubleBooked} double-booked units in the whole database · {race.totalMilliseconds} ms
               </div>
-              <div className="mt-2 text-[#9fb1c3]">A refused hospital was told: “{race.hospitals.find((h) => !h.unitReserved)?.summary}”</div>
+              <div className="mt-2 text-[#9fb1c3]">Each refused hospital was answered at once: “{race.hospitals.find((h) => !h.unitReserved)?.summary.split(". ")[0].replace(/.$/, "")}.”</div>
             </>
           )}
         </div>
