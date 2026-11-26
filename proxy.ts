@@ -4,7 +4,6 @@ import { SESSION_COOKIE, verifySession } from "@/lib/session";
 // Optimistic checks only (cookie signature + expiry). Real authorization happens in every
 // Route Handler and page via requireUser()/requirePageUser(), against the database.
 const PROTECTED = ["/dashboard", "/inventory", "/requests", "/admin", "/demo"];
-const AUTH_PAGES = ["/login", "/register"];
 
 export async function proxy(req: NextRequest) {
   const path = req.nextUrl.pathname;
@@ -15,9 +14,9 @@ export async function proxy(req: NextRequest) {
     url.searchParams.set("next", path);
     return NextResponse.redirect(url);
   }
-  if (AUTH_PAGES.includes(path) && session) {
-    return NextResponse.redirect(new URL("/dashboard", req.nextUrl));
-  }
+  // Never redirect AWAY from /login or /register here: a cookie can have a valid signature while its
+  // session was revoked (logout, demo reset). Redirecting on the cookie alone would loop between
+  // /login and /dashboard. Those pages check the database themselves.
   return NextResponse.next();
 }
 

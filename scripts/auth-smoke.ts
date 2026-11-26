@@ -168,6 +168,14 @@ async function main() {
     check("logout clears the cookie", out.status === 200 && /lifeline_session=;/.test(out.setCookie));
     const replay = await call("/api/auth/me", { cookie: donor.cookie });
     check("a COPIED cookie replayed after logout -> 401", replay.status === 401);
+    // A revoked-but-correctly-signed cookie (after logout or a demo reset) must not cause a redirect loop.
+    const stalePage = await call("/login", { cookie: donor.cookie });
+    check("stale cookie: sign-in page is shown, not redirected away", stalePage.status === 200, `status ${stalePage.status}`);
+    check("stale cookie: register page is shown", (await call("/register", { cookie: donor.cookie })).status === 200);
+    const staleDash = await call("/dashboard", { cookie: donor.cookie });
+    check("stale cookie: dashboard sends you to sign-in", [307, 308].includes(staleDash.status) && (staleDash.headers.get("location") ?? "").includes("/login"));
+    const livePage = await call("/login", { cookie: admin.cookie });
+    check("a live session visiting /login goes to the dashboard", [307, 308].includes(livePage.status) && (livePage.headers.get("location") ?? "").includes("/dashboard"), `status ${livePage.status}`);
     const stillIn = await call("/api/auth/me", { cookie: admin.cookie });
     check("other users' sessions are unaffected", stillIn.status === 200);
 
