@@ -15,7 +15,8 @@
     "verify:db": "tsx --env-file=.env scripts/verify-schema.ts",
     "explain:demo": "tsx --env-file=.env scripts/explain-demo.ts",
     "race": "tsx --env-file=.env scripts/race-test.ts",
-    "smoke:api": "tsx --env-file=.env scripts/api-smoke.ts"
+    "smoke:api": "tsx --env-file=.env scripts/api-smoke.ts",
+    "smoke:ui": "node --env-file=.env scripts/ui-smoke.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",

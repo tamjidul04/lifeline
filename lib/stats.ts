@@ -1,6 +1,7 @@
 import type { BloodType, Component, Prisma } from "@prisma/client";
 import { prisma } from "./db";
 import { availableUnitWhere } from "./inventory";
+import { donorEligibility } from "./donors";
 import { BLOOD_TYPE_ORDER } from "./blood";
 import type { Actor } from "./access";
 
@@ -66,6 +67,12 @@ export async function dashboardFor(actor: Actor, now = new Date()) {
     };
   }
 
-  // DONOR: eligibility summary
+  if (actor.role === "DONOR" && actor.donorId) {
+    const donor = await prisma.donor.findUniqueOrThrow({ where: { id: actor.donorId } });
+    return {
+      role: actor.role,
+      donor: { bloodType: donor.bloodType, lastDonationAt: donor.lastDonationAt, ...donorEligibility(donor.lastDonationAt, now) },
+    };
+  }
   return { role: actor.role };
 }

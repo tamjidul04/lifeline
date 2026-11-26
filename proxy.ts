@@ -3,7 +3,7 @@ import { SESSION_COOKIE, verifySession } from "@/lib/session";
 
 // Optimistic checks only (cookie signature + expiry). Real authorization happens in every
 // Route Handler and page via requireUser()/requirePageUser(), against the database.
-const PROTECTED = ["/dashboard", "/inventory", "/requests", "/admin", "/donor"];
+const PROTECTED = ["/dashboard", "/inventory", "/requests", "/admin", "/demo"];
 const AUTH_PAGES = ["/login", "/register"];
 
 export async function proxy(req: NextRequest) {

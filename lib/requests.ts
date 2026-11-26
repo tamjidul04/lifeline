@@ -213,6 +213,32 @@ export async function createRequest(actor: Actor, input: CreateRequestInput, ide
   return { request, replayed: outcome.replayed };
 }
 
+/** What the engine would do with current stock. Read-only: no locks, no writes. */
+export async function previewRequest(actor: Actor, input: CreateRequestInput): Promise<MatchPlan> {
+  if (actor.role !== "HOSPITAL" || !actor.hospitalId) throw forbidden();
+  const now = new Date();
+  const compat = compatibleTypes(input.bloodType, input.component);
+  const [hospital, units, donorRows] = await Promise.all([
+    prisma.hospital.findUniqueOrThrow({ where: { id: actor.hospitalId } }),
+    prisma.bloodUnit.findMany({
+      where: { ...availableUnitWhere(now), component: input.component, bloodType: { in: [...compat.exact, ...compat.substitutes] } },
+      include: { bank: true },
+    }),
+    input.component === "RBC" ? prisma.donor.findMany({ include: { user: { select: { name: true } } } }) : Promise.resolve([]),
+  ]);
+  return planAllocation(
+    { bloodType: input.bloodType, component: input.component, units: input.unitsRequested, urgency: input.urgency, hospital },
+    units.map((u) => ({
+      id: u.id, bankId: u.bankId, bankName: u.bank.name, bankLat: u.bank.lat, bankLng: u.bank.lng,
+      bloodType: u.bloodType, component: u.component, expiresAt: u.expiresAt,
+    })),
+    {
+      now,
+      donors: donorRows.map((d) => ({ id: d.id, name: d.user.name, bloodType: d.bloodType, lastDonationAt: d.lastDonationAt, lat: d.lat, lng: d.lng })),
+    },
+  );
+}
+
 /** Lock a request row so cancel and deliver on the same request run one at a time. */
 async function lockRequest(tx: Prisma.TransactionClient, id: string): Promise<boolean> {
   const rows = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM "BloodRequest" WHERE id = ${id} FOR UPDATE`;
